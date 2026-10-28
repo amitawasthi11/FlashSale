@@ -5,6 +5,33 @@ import { createEventSchema } from "../schemas/eventSchema.js";
 
 const router = Router();
 
+
+
+router.get("/:id", async (req, res, next) => {
+  try {
+    const event = await prisma.event.findUnique({
+      where: {
+        id: req.params.id,
+      },
+    });
+
+    if (!event) {
+      res.status(404).json({
+        success: false,
+        message: "Event not found",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: event,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/", async (req, res, next) => {
   try {
     const result = createEventSchema.safeParse(req.body);
