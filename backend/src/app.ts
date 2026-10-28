@@ -2,6 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import { errorHandler } from "./middleware/errorHandler.js";
+import eventRoutes from "./routes/eventRoutes.js";
 
 const app = express();
 
@@ -19,6 +20,8 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+
+app.use("/api/events", eventRoutes);
 
 
 // Handle requests to nonexistent routes.
