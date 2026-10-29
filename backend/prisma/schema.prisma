@@ -25,11 +25,13 @@ model Event {
   venue       String
   startsAt    DateTime
   totalSeats  Int
+  availableSeats Int
   priceInPaise Int
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   bookings    Booking[]
+   @@index([startsAt])
 }
 
 model Booking {
