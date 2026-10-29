@@ -45,9 +45,15 @@ router.post("/", async (req, res, next) => {
       return;
     }
 
-    const event = await prisma.event.create({
-      data: result.data,
-    });
+    const { totalSeats, ...eventData } = result.data;
+
+const event = await prisma.event.create({
+  data: {
+    ...eventData,
+    totalSeats,
+    availableSeats: totalSeats,
+  },
+});
 
     res.status(201).json({
       success: true,
