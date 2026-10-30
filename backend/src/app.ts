@@ -3,6 +3,8 @@ import helmet from "helmet";
 import cors from "cors";
 import { errorHandler } from "./middleware/errorHandler.js";
 import eventRoutes from "./routes/eventRoutes.js";
+import bookingRoutes from "./modules/bookings/booking.routes"
+
 
 const app = express();
 
@@ -11,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 
-
+app.use("/api/bookings", bookingRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.status(200).json({

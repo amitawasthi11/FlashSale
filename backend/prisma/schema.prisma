@@ -8,15 +8,19 @@ datasource db {
   provider = "postgresql"
 }
 
+
+
 model User {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
+  password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   bookings  Booking[]
 }
+
 
 model Event {
   id          String   @id @default(uuid())
@@ -38,7 +42,8 @@ model Booking {
   id        String   @id @default(uuid())
   userId    String
   eventId   String
-  quantity  Int
+  quantity  Int @default(1)
+  totalAmountPaise Int @default(0)
   status    BookingStatus @default(PENDING)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
