@@ -22,18 +22,17 @@ export async function createBooking(input: CreateBookingInput) {
         select: {
           id: true,
           priceInPaise: true,
-          availableSeats: true,
+          isCancelled: true,
         },
       });
 
-      if (!event) {
-        throw new Error("EVENT_NOT_FOUND");
-      }
+      if (!event) throw new Error("EVENT_NOT_FOUND");
+      if (event.isCancelled) throw new Error("EVENT_CANCELLED");
 
-      // Check the current inventory and decrement atomically.
       const inventoryUpdate = await tx.event.updateMany({
         where: {
           id: eventId,
+          isCancelled: false,
           availableSeats: { gte: quantity },
         },
         data: {
@@ -51,7 +50,6 @@ export async function createBooking(input: CreateBookingInput) {
         throw new Error("INVALID_TOTAL_AMOUNT");
       }
 
-      // If booking creation fails, the seat update rolls back too.
       return tx.booking.create({
         data: {
           userId,
@@ -69,12 +67,11 @@ export async function createBooking(input: CreateBookingInput) {
     }
   );
 }
+
 export async function getMyBookings(userId: string) {
   return prisma.booking.findMany({
     where: { userId },
-    include: {
-      event: true,
-    },
+    include: { event: true },
     orderBy: { createdAt: "desc" },
   });
 }

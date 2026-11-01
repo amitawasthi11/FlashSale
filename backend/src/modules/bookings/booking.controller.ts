@@ -1,8 +1,10 @@
 
 import type { Request, Response, NextFunction } from "express";
-import { createBooking } from "./booking.service";
-import { cancelBooking } from "./booking.service";
-import { getMyBookings } from "./booking.service";
+import {
+  createBooking,
+  cancelBooking,
+  getMyBookings,
+} from "./booking.service";
 
 type AuthenticatedRequest = Request & {
   user?: { id: string };
@@ -14,13 +16,12 @@ export async function bookTickets(
   next: NextFunction
 ) {
   try {
-    const authenticatedReq = req as AuthenticatedRequest;
-    const userId = authenticatedReq.user?.id;
+    const userId = (req as AuthenticatedRequest).user?.id;
 
     if (!userId) {
       res.status(401).json({
         success: false,
-        message: "Authentication required.",
+        message: "Authentication required",
       });
       return;
     }
@@ -29,14 +30,14 @@ export async function bookTickets(
 
     if (
       typeof eventId !== "string" ||
-      eventId.trim().length === 0 ||
+      !eventId.trim() ||
       !Number.isSafeInteger(quantity) ||
       quantity < 1 ||
       quantity > 10
     ) {
       res.status(400).json({
         success: false,
-        message: "Provide a valid eventId and quantity from 1 to 10.",
+        message: "Provide a valid eventId and quantity from 1 to 10",
       });
       return;
     }
@@ -49,31 +50,44 @@ export async function bookTickets(
 
     res.status(201).json({
       success: true,
-      message: "Tickets reserved successfully.",
+      message: "Tickets reserved successfully",
       data: { booking },
     });
   } catch (error) {
     if (error instanceof Error) {
-      if (error.message === "EVENT_NOT_FOUND") {
-        res.status(404).json({
+      const errors: Record<string, { status: number; message: string }> = {
+        EVENT_NOT_FOUND: {
+          status: 404,
+          message: "Event not found",
+        },
+        EVENT_CANCELLED: {
+          status: 409,
+          message: "This event has been cancelled",
+        },
+        INSUFFICIENT_SEATS: {
+          status: 409,
+          message: "Not enough seats available",
+        },
+        INVALID_TOTAL_AMOUNT: {
+          status: 400,
+          message: "Invalid booking amount",
+        },
+      };
+
+      const knownError = errors[error.message];
+
+      if (knownError) {
+        res.status(knownError.status).json({
           success: false,
-          message: "Event not found.",
+          message: knownError.message,
         });
         return;
       }
 
-      if (error.message === "INSUFFICIENT_SEATS") {
-        res.status(409).json({
-          success: false,
-          message: "Not enough seats available.",
-        });
-        return;
-      }
-
-      if (error.message === "INVALID_TOTAL_AMOUNT") {
+      if (error.message.startsWith("Quantity must")) {
         res.status(400).json({
           success: false,
-          message: "Booking total is outside the supported range.",
+          message: error.message,
         });
         return;
       }
@@ -82,25 +96,57 @@ export async function bookTickets(
     next(error);
   }
 }
-export async function cancelBookingHandler(req: any, res: any) {
+
+export async function cancelBookingHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const result = await cancelBooking(req.params.id, req.user.id);
-    res.status(200).json(result);
-  } catch (error) {
-    if (error instanceof Error && error.message === "BOOKING_NOT_FOUND") {
-      res.status(404).json({ message: "Pending booking not found" });
+    const userId = (req as AuthenticatedRequest).user?.id;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
       return;
     }
 
-    res.status(500).json({ message: "Failed to cancel booking" });
+    const result = await cancelBooking(req.params.id, userId);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    if (error instanceof Error && error.message === "BOOKING_NOT_FOUND") {
+      res.status(404).json({
+        success: false,
+        message: "Pending booking not found",
+      });
+      return;
+    }
+
+    next(error);
   }
 }
 
-export async function myBookings(req: any, res: any) {
+export async function myBookings(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const bookings = await getMyBookings(req.user.id);
-    res.json({ success: true, bookings });
-  } catch {
-    res.status(500).json({ message: "Failed to fetch bookings" });
+    const userId = (req as AuthenticatedRequest).user?.id;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    const bookings = await getMyBookings(userId);
+    res.status(200).json({ success: true, bookings });
+  } catch (error) {
+    next(error);
   }
 }

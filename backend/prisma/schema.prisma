@@ -64,3 +64,5 @@ enum BookingStatus {
   CONFIRMED
   CANCELLED
 }
+
+isCancelled Boolean @default(false)
