@@ -69,3 +69,26 @@ export async function createBooking(input: CreateBookingInput) {
     }
   );
 }
+export async function cancelBooking(bookingId: string, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const booking = await tx.booking.findFirst({
+      where: { id: bookingId, userId, status: "PENDING" },
+    });
+
+    if (!booking) throw new Error("BOOKING_NOT_FOUND");
+
+    const cancelled = await tx.booking.updateMany({
+      where: { id: bookingId, userId, status: "PENDING" },
+      data: { status: "CANCELLED" },
+    });
+
+    if (cancelled.count !== 1) throw new Error("BOOKING_NOT_FOUND");
+
+    await tx.event.update({
+      where: { id: booking.eventId },
+      data: { availableSeats: { increment: booking.quantity } },
+    });
+
+    return { message: "Booking cancelled successfully" };
+  });
+}

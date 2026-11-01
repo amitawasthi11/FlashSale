@@ -1,7 +1,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { createBooking } from "./booking.service";
-
+import { cancelBooking } from "./booking.service";
 type AuthenticatedRequest = Request & {
   user?: { id: string };
 };
@@ -78,5 +78,18 @@ export async function bookTickets(
     }
 
     next(error);
+  }
+}
+export async function cancelBookingHandler(req: any, res: any) {
+  try {
+    const result = await cancelBooking(req.params.id, req.user.id);
+    res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof Error && error.message === "BOOKING_NOT_FOUND") {
+      res.status(404).json({ message: "Pending booking not found" });
+      return;
+    }
+
+    res.status(500).json({ message: "Failed to cancel booking" });
   }
 }
