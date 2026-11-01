@@ -2,6 +2,8 @@
 import type { Request, Response, NextFunction } from "express";
 import { createBooking } from "./booking.service";
 import { cancelBooking } from "./booking.service";
+import { getMyBookings } from "./booking.service";
+
 type AuthenticatedRequest = Request & {
   user?: { id: string };
 };
@@ -91,5 +93,14 @@ export async function cancelBookingHandler(req: any, res: any) {
     }
 
     res.status(500).json({ message: "Failed to cancel booking" });
+  }
+}
+
+export async function myBookings(req: any, res: any) {
+  try {
+    const bookings = await getMyBookings(req.user.id);
+    res.json({ success: true, bookings });
+  } catch {
+    res.status(500).json({ message: "Failed to fetch bookings" });
   }
 }

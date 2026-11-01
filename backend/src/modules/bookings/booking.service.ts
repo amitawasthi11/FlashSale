@@ -69,20 +69,31 @@ export async function createBooking(input: CreateBookingInput) {
     }
   );
 }
+export async function getMyBookings(userId: string) {
+  return prisma.booking.findMany({
+    where: { userId },
+    include: {
+      event: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export async function cancelBooking(bookingId: string, userId: string) {
   return prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findFirst({
-      where: { id: bookingId, userId, status: "PENDING" },
-    });
-
-    if (!booking) throw new Error("BOOKING_NOT_FOUND");
-
-    const cancelled = await tx.booking.updateMany({
+    const result = await tx.booking.updateMany({
       where: { id: bookingId, userId, status: "PENDING" },
       data: { status: "CANCELLED" },
     });
 
-    if (cancelled.count !== 1) throw new Error("BOOKING_NOT_FOUND");
+    if (result.count !== 1) {
+      throw new Error("BOOKING_NOT_FOUND");
+    }
+
+    const booking = await tx.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      select: { eventId: true, quantity: true },
+    });
 
     await tx.event.update({
       where: { id: booking.eventId },
