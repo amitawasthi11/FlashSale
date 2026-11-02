@@ -50,15 +50,18 @@ export async function createBooking(input: CreateBookingInput) {
         throw new Error("INVALID_TOTAL_AMOUNT");
       }
 
-      return tx.booking.create({
-        data: {
-          userId,
-          eventId,
-          quantity,
-          totalAmountPaise,
-          status: "PENDING",
-        },
-      });
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+return tx.booking.create({
+  data: {
+    userId,
+    eventId,
+    quantity,
+    totalAmountPaise,
+    status: "PENDING",
+    expiresAt,
+  },
+});
     },
     {
       isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
@@ -98,5 +101,57 @@ export async function cancelBooking(bookingId: string, userId: string) {
     });
 
     return { message: "Booking cancelled successfully" };
+  });
+}
+
+export async function expirePendingBookings() {
+  return prisma.$transaction(async (tx) => {
+    const now = new Date();
+
+    const expiredBookings = await tx.booking.findMany({
+      where: {
+        status: "PENDING",
+        expiresAt: {
+          lte: now,
+        },
+      },
+      select: {
+        id: true,
+        eventId: true,
+        quantity: true,
+      },
+    });
+
+    let expiredCount = 0;
+
+    for (const booking of expiredBookings) {
+      const result = await tx.booking.updateMany({
+        where: {
+          id: booking.id,
+          status: "PENDING",
+          expiresAt: {
+            lte: now,
+          },
+        },
+        data: {
+          status: "CANCELLED",
+        },
+      });
+
+      if (result.count === 1) {
+        await tx.event.update({
+          where: { id: booking.eventId },
+          data: {
+            availableSeats: {
+              increment: booking.quantity,
+            },
+          },
+        });
+
+        expiredCount++;
+      }
+    }
+
+    return expiredCount;
   });
 }
