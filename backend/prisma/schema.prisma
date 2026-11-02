@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -8,55 +7,79 @@ datasource db {
   provider = "postgresql"
 }
 
-
-
 model User {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
-  email     String   @unique
+  email     String    @unique
   password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  role Role @default(USER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  role      Role      @default(USER)
   bookings  Booking[]
-  
 }
 
 enum Role {
   USER
   ADMIN
 }
+
 model Event {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  venue       String
-  startsAt    DateTime
-  totalSeats  Int
+  id             String    @id @default(uuid())
+  title          String
+  description    String?
+  venue          String
+  startsAt       DateTime
+  totalSeats     Int
   availableSeats Int
-  priceInPaise Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-isCancelled Boolean @default(false)
-  bookings    Booking[]
-   @@index([startsAt])
+  priceInPaise   Int
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  isCancelled    Boolean   @default(false)
+  bookings       Booking[]
+
+  @@index([startsAt])
 }
 
 model Booking {
-  id        String   @id @default(uuid())
-  userId    String
-  eventId   String
-  quantity  Int @default(1)
-  totalAmountPaise Int @default(0)
-  status    BookingStatus @default(PENDING)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  expiresAt DateTime?
-  user  User  @relation(fields: [userId], references: [id])
-  event Event @relation(fields: [eventId], references: [id])
+  id               String        @id @default(uuid())
+  userId           String
+  eventId          String
+  quantity         Int           @default(1)
+  totalAmountPaise Int           @default(0)
+  status           BookingStatus @default(PENDING)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  expiresAt        DateTime?
+  user             User          @relation(fields: [userId], references: [id])
+  event            Event         @relation(fields: [eventId], references: [id])
+  payments         Payment[]
 
   @@index([userId])
   @@index([eventId, status])
+}
+
+enum PaymentStatus {
+  CREATED
+  CAPTURED
+  FAILED
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  bookingId         String
+  razorpayOrderId   String        @unique
+  razorpayPaymentId String?       @unique
+  amountPaise       Int
+  currency          String        @default("INR")
+  status            PaymentStatus @default(CREATED)
+  failureReason     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+  @@index([status])
 }
 
 enum BookingStatus {
@@ -64,4 +87,3 @@ enum BookingStatus {
   CONFIRMED
   CANCELLED
 }
-

@@ -6,13 +6,13 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import eventRoutes from "./routes/eventRoutes.js";
 import bookingRoutes from "./modules/bookings/booking.routes";
 import authRoutes from "./modules/auth/auth.routes";
-
+import paymentRoutes from "./modules/payments/payment.routes";
 const app = express();
 
 app.use(helmet());
 app.use(cors());
 app.use(express.json()); // Parse JSON before routes
-
+app.use("/api/payments", paymentRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/events", eventRoutes);
