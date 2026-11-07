@@ -2,12 +2,20 @@
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
+import { razorpayWebhook } from "./modules/payments/payment.webhook";
 import { errorHandler } from "./middleware/errorHandler.js";
 import eventRoutes from "./routes/eventRoutes.js";
 import bookingRoutes from "./modules/bookings/booking.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import paymentRoutes from "./modules/payments/payment.routes";
 const app = express();
+
+
+app.post(
+  "/api/payments/webhook",
+  express.raw({ type: "application/json" }),
+  razorpayWebhook
+);
 
 app.use(helmet());
 app.use(cors());
@@ -23,6 +31,7 @@ app.get("/api/health", (_req, res) => {
     message: "FlashSale API is running!",
   });
 });
+
 
 // Handle nonexistent routes
 app.use((_req, res) => {
