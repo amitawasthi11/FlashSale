@@ -103,7 +103,7 @@ export async function razorpayWebhook(req: Request, res: Response) {
         );
       }
     });
-
+    console.log("🔥 RAZORPAY WEBHOOK RECEIVED");
     res.status(200).send("Webhook processed");
   } catch (error) {
     console.error("Razorpay webhook failed:", error);

@@ -2,33 +2,39 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>FlashSale Test Payment</title>
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
 <body>
-  <h2>FlashSale Payment Test</h2>
-  <p>Amount: ₹998.00</p>
+  <h2>FlashSale Test Payment</h2>
   <button id="payBtn">Pay with Razorpay Test Mode</button>
-  <pre id="result"></pre>
+  <pre id="result">Ready to pay</pre>
 
   <script>
     const options = {
       key: "rzp_test_TvELLWb8uuvs2D",
-      amount: 99800,
+      amount: 99800, // Replace with fresh order amount in paise
       currency: "INR",
       name: "FlashSale",
       description: "Test ticket booking",
-      order_id: "order_TwzT6JodIf4FK2",
+      order_id: "order_TxPMRALZpRrtN4",
 
       handler: function (response) {
         document.getElementById("result").textContent =
+          "Payment response:\n" +
           JSON.stringify(response, null, 2);
       }
     };
 
+    const checkout = new Razorpay(options);
+
+    checkout.on("payment.failed", function (response) {
+      document.getElementById("result").textContent =
+        JSON.stringify(response.error, null, 2);
+    });
+
     document.getElementById("payBtn").onclick = function () {
-      const checkout = new Razorpay(options);
       checkout.open();
     };
   </script>
