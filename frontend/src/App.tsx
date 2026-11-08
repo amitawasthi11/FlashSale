@@ -1,6 +1,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import api from './lib/api'
+import { QRCodeSVG } from "qrcode.react";
 
 type EventItem = {
   id: string
@@ -175,10 +176,11 @@ const [showTickets, setShowTickets] = useState(false)
               razorpaySignature: result.razorpay_signature,
             })
 
-            finished = true
-            setNotice('Payment verified! Your booking is confirmed.')
+           finished = true
+           setNotice('Payment verified! Your booking is confirmed.')
             setSelected(null)
-            await loadEvents()
+           await loadEvents()
+            await myBookings()
           } catch (err: any) {
             setNotice(
               err.response?.data?.message ||
@@ -398,59 +400,107 @@ async function myBookings() {
       <p className="text-slate-400">No bookings found.</p>
     ) : (
       <div className="grid gap-4 md:grid-cols-2">
-        {myTickets.map((booking: any) => (
-          <article
-            key={booking.id}
-            className="rounded-xl border border-white/10 bg-[#07111f] p-5"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold">
-                  {booking.event?.title ??
-                    booking.eventTitle ??
-                    'Event Ticket'}
-                </h3>
-                <p className="mt-1 text-sm text-slate-400">
-                  {booking.event?.venue ?? booking.event?.location ?? ''}
-                </p>
-              </div>
+        
+{myTickets.map((booking: any) => (
+  <article
+    key={booking.id}
+    className="rounded-xl border border-white/10 bg-[#07111f] p-5"
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <h3 className="text-lg font-bold">
+          {booking.event?.title ??
+            booking.eventTitle ??
+            "Event Ticket"}
+        </h3>
 
-              <span className="rounded-full bg-orange-400/10 px-3 py-1 text-xs font-bold text-orange-300">
-                {booking.status}
-              </span>
-            </div>
+        <p className="mt-1 text-sm text-slate-400">
+          {booking.event?.venue ?? booking.event?.location ?? ""}
+        </p>
 
-            <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-slate-500">Booking ID</p>
-                <p className="mt-1 break-all">{booking.id}</p>
-              </div>
+        {booking.event?.startsAt && (
+          <p className="mt-1 text-sm text-slate-400">
+            {new Date(booking.event.startsAt).toLocaleString("en-IN", {
+              dateStyle: "medium",
+              timeStyle: "short",
+              timeZone: "Asia/Kolkata",
+            })}
+          </p>
+        )}
+      </div>
 
-              <div>
-                <p className="text-slate-500">Tickets</p>
-                <p className="mt-1 font-bold">{booking.quantity}</p>
-              </div>
+      <span className="rounded-full bg-orange-400/10 px-3 py-1 text-xs font-bold text-orange-300">
+        {booking.status}
+      </span>
+    </div>
 
-              <div>
-                <p className="text-slate-500">Total</p>
-                <p className="mt-1 font-bold">
-                  ₹{(
-                    (booking.totalAmountPaise ?? 0) / 100
-                  ).toLocaleString('en-IN')}
-                </p>
-              </div>
+    <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
+      <div>
+        <p className="text-slate-500">Booking ID</p>
+        <p className="mt-1 break-all">{booking.id}</p>
+      </div>
 
-              <div>
-                <p className="text-slate-500">Booked on</p>
-                <p className="mt-1">
-                  {booking.createdAt
-                    ? new Date(booking.createdAt).toLocaleDateString('en-IN')
-                    : '—'}
-                </p>
-              </div>
-            </div>
-          </article>
-        ))}
+      <div>
+        <p className="text-slate-500">Tickets</p>
+        <p className="mt-1 font-bold">{booking.quantity}</p>
+      </div>
+
+      <div>
+        <p className="text-slate-500">Total</p>
+        <p className="mt-1 font-bold">
+          ₹{((booking.totalAmountPaise ?? 0) / 100).toLocaleString("en-IN")}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-slate-500">Booked on</p>
+        <p className="mt-1">
+          {booking.createdAt
+            ? new Date(booking.createdAt).toLocaleDateString("en-IN")
+            : "—"}
+        </p>
+      </div>
+    </div>
+
+    {/* QR ticket for confirmed bookings */}
+    {booking.status === "CONFIRMED" && booking.ticketCode && (
+      <div className="mt-6 rounded-xl border border-white/10 bg-white p-5 text-center">
+        <QRCodeSVG
+          value={booking.ticketCode}
+          size={180}
+          level="H"
+          title={`QR ticket for ${booking.event?.title ?? "FlashSale event"}`}
+          className="mx-auto"
+        />
+
+        <p className="mt-4 font-bold text-slate-900">
+          Your entry ticket
+        </p>
+
+        <p className="mt-2 break-all font-mono text-xs text-slate-600">
+          {booking.ticketCode}
+        </p>
+
+        <p className="mt-3 text-xs text-slate-500">
+          Show this QR code at the event entrance.
+        </p>
+      </div>
+    )}
+
+    {booking.status === "CONFIRMED" && !booking.ticketCode && (
+      <p className="mt-5 text-sm text-amber-300">
+        Your booking is confirmed, but its ticket code is not available.
+      </p>
+    )}
+
+    {booking.status === "PENDING" && (
+      <p className="mt-5 text-sm text-amber-300">
+        Payment is pending. Your QR ticket will appear after confirmation.
+      </p>
+    )}
+  </article>
+))}
+
       </div>
     )}
   </section>
