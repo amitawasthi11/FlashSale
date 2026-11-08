@@ -93,16 +93,17 @@ export async function verifyPayment(input: VerifyPaymentInput) {
 
   // 2. Allow retries if payment was already verified
   if (
-    paymentRecord.status === "CAPTURED" &&
-    paymentRecord.razorpayPaymentId === razorpayPaymentId &&
-    paymentRecord.booking.status === "CONFIRMED"
-  ) {
-    return {
-      message: "Payment already verified",
-      bookingId,
-      status: "CONFIRMED",
-    };
-  }
+  paymentRecord.status === "CAPTURED" &&
+  paymentRecord.razorpayPaymentId === razorpayPaymentId &&
+  paymentRecord.booking.status === "CONFIRMED"
+) {
+  return {
+    message: "Payment already verified",
+    bookingId,
+    ticketCode: paymentRecord.booking.ticketCode,
+    status: "CONFIRMED",
+  };
+}
 
   if (paymentRecord.status !== "CREATED") {
     throw new Error("PAYMENT_NOT_PENDING");
@@ -147,21 +148,32 @@ export async function verifyPayment(input: VerifyPaymentInput) {
   return prisma.$transaction(async (tx) => {
     const now = new Date();
 
-    const bookingUpdate = await tx.booking.updateMany({
-      where: {
-        id: bookingId,
-        userId,
-        status: "PENDING",
-        expiresAt: { gt: now },
-      },
-      data: {
-        status: "CONFIRMED",
-      },
-    });
+    const ticketCode = crypto.randomUUID();
 
-    if (bookingUpdate.count !== 1) {
-      throw new Error("BOOKING_EXPIRED_OR_NOT_PENDING");
-    }
+const ticketCode = crypto.randomUUID();
+
+const bookingUpdate = await tx.booking.updateMany({
+  where: {
+    id: bookingId,
+    userId,
+    status: "PENDING",
+    expiresAt: { gt: now },
+  },
+  data: {
+    status: "CONFIRMED",
+    ticketCode,
+  },
+});
+
+if (bookingUpdate.count !== 1) {
+  throw new Error("BOOKING_EXPIRED_OR_NOT_PENDING");
+}
+
+if (bookingUpdate.count !== 1) {
+  throw new Error("BOOKING_EXPIRED_OR_NOT_PENDING");
+}
+
+    
 
     const paymentUpdate = await tx.payment.updateMany({
       where: {
@@ -179,11 +191,12 @@ export async function verifyPayment(input: VerifyPaymentInput) {
       throw new Error("PAYMENT_ALREADY_PROCESSED");
     }
 
-    return {
-      message: "Payment verified successfully",
-      bookingId,
-      paymentId: razorpayPaymentId,
-      status: "CONFIRMED",
-    };
+   return {
+  message: "Payment verified successfully",
+  bookingId,
+  paymentId: razorpayPaymentId,
+  ticketCode,
+  status: "CONFIRMED",
+};
   });
 }
