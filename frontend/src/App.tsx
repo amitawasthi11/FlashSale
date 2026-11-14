@@ -1,7 +1,8 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import api from './lib/api'
-import { QRCodeSVG } from "qrcode.react";
+import { Search, MapPin, ChevronDown, ArrowRight, Ticket, Menu, X } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 
 type EventItem = {
   id: string
@@ -32,6 +33,8 @@ export default function App() {
   const [quantity, setQuantity] = useState(1)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [hideHeader, setHideHeader] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
   const [loginOpen, setLoginOpen] = useState(false)
   const [user, setUser] = useState(
     () => localStorage.getItem('flashsale_user_email') || '',
@@ -39,8 +42,8 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [myTickets, setMyTickets] = useState<any[]>([])
-const [showTickets, setShowTickets] = useState(false)
-
+  const [showTickets, setShowTickets] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   async function loadEvents() {
     setLoading(true)
     setError('')
@@ -86,6 +89,31 @@ const [showTickets, setShowTickets] = useState(false)
     }
   }
 
+  useEffect(() => {
+  let lastScrollY = window.scrollY
+
+  const handleScroll = () => {
+    const currentScrollY = window.scrollY
+
+    if (currentScrollY < 80) {
+      setHideHeader(false)
+    } else if (currentScrollY > lastScrollY + 5) {
+      // Scrolling down
+      setHideHeader(true)
+    } else if (currentScrollY < lastScrollY - 5) {
+      // Scrolling up
+      setHideHeader(false)
+    }
+
+    lastScrollY = currentScrollY
+  }
+
+  window.addEventListener('scroll', handleScroll, { passive: true })
+
+  return () => {
+    window.removeEventListener('scroll', handleScroll)
+  }
+}, [])
   async function checkout() {
     if (!selected) return
 
@@ -276,50 +304,188 @@ async function myBookings() {
       timeZone: 'Asia/Kolkata',
     })
 
+  const filteredEvents = events.filter((event) =>
+    `${event.title} ${event.description ?? ''} ${event.venue}`
+      .toLowerCase()
+      .includes(searchTerm.trim().toLowerCase()),
+  )
+
   return (
     <div className="min-h-screen bg-[#07111f] text-slate-100">
-      <header className="border-b border-white/10">
-        <nav className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-5">
+      
+
+<header
+   className={`sticky top-0 z-50 border-b border-white/[0.08] bg-[#07111f]/90 backdrop-blur-xl transition-all duration-300 ${
+    hideHeader
+      ? 'pointer-events-none -translate-y-full opacity-0'
+      : 'translate-y-0 opacity-100'
+  }`}
+>
+  <nav className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3 lg:px-8">
+    {/* Logo */}
+    <button
+      type="button"
+      onClick={() => {
+        setSelected(null)
+        setMenuOpen(false)
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }}
+      className="flex shrink-0 items-center gap-2"
+    >
+      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ff6b35] text-white">
+        <Ticket size={22} />
+      </span>
+      <span className="text-xl font-black tracking-tight text-white">
+        Flash<span className="text-[#ff784b]">Sale</span>
+      </span>
+    </button>
+
+    {/* Search bar */}
+    <div className="mx-auto hidden max-w-xl flex-1 md:block">
+      <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2.5 transition focus-within:border-orange-400/50">
+        <Search size={19} className="shrink-0 text-slate-400" />
+        <input
+          type="search"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          placeholder="Search events, concerts, sports..."
+          className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+          aria-label="Search events"
+        />
+      </div>
+    </div>
+
+    {/* Location */}
+    <button
+      type="button"
+      className="hidden shrink-0 items-center gap-1.5 text-sm text-slate-300 transition hover:text-white sm:flex"
+    >
+      <MapPin size={17} />
+      <span>Lucknow</span>
+      <ChevronDown size={15} />
+    </button>
+
+    {/* Sign in / account menu */}
+    <div className="relative ml-auto flex shrink-0 items-center gap-3 sm:ml-0">
+      {!user && (
+        <button
+          type="button"
+          onClick={() => {
+            setLoginOpen(true)
+            setMenuOpen(false)
+          }}
+          className="rounded-md bg-[#ff6b35] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#ff8052]"
+        >
+          Sign in
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setMenuOpen((open) => !open)}
+        aria-label={menuOpen ? 'Close menu' : 'Open account menu'}
+        aria-expanded={menuOpen}
+        className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 text-white transition hover:bg-white/[0.08]"
+      >
+        {menuOpen ? <X size={22} /> : <Menu size={22} />}
+      </button>
+    </div>
+  </nav>
+
+  {/* Secondary navigation */}
+  <div className="border-t border-white/[0.05]">
+    <div className="mx-auto flex max-w-7xl items-center gap-6 overflow-x-auto px-4 py-2.5 text-sm text-slate-400 lg:px-8">
+      <a href="#events" className="shrink-0 transition hover:text-white">
+        For you
+      </a>
+      <a href="#events" className="shrink-0 transition hover:text-white">
+        Events
+      </a>
+      <a href="#categories" className="shrink-0 transition hover:text-white">
+        Concerts
+      </a>
+      <a href="#categories" className="shrink-0 transition hover:text-white">
+        Sports
+      </a>
+      <a href="#categories" className="shrink-0 transition hover:text-white">
+        Theatre
+      </a>
+    </div>
+  </div>
+
+  {/* Account dropdown */}
+  <div
+    className={`absolute right-4 top-full z-50 mt-2 w-[min(320px,calc(100vw-32px))] transition-all duration-200 lg:right-[max(2rem,calc((100vw-80rem)/2))] ${
+      menuOpen
+        ? 'visible translate-y-0 opacity-100'
+        : 'invisible -translate-y-2 pointer-events-none opacity-0'
+    }`}
+  >
+    <div className="rounded-xl border border-white/10 bg-[#101d2e] p-3 shadow-2xl shadow-black/40">
+      <div className="mb-2 rounded-lg bg-white/[0.04] p-3">
+        <p className="text-sm font-semibold text-white">
+          {user || 'Welcome to FlashSale'}
+        </p>
+        <p className="mt-1 text-xs text-slate-400">
+          {user ? 'Manage your bookings' : 'Sign in to access your tickets'}
+        </p>
+      </div>
+
+      {user ? (
+        <>
           <button
-            onClick={() => setSelected(null)}
-            className="text-2xl font-black tracking-tight"
+            type="button"
+            onClick={() => {
+              setMenuOpen(false)
+              void myBookings()
+            }}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm text-slate-200 transition hover:bg-white/[0.06]"
           >
-            Flash<span className="text-[#ff6b35]">Sale.</span>
+            <Ticket size={18} className="text-[#ff784b]" />
+            My Tickets
           </button>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={() => void myBookings()} className="text-sm text-slate-300">
-              My Tickets
-            </button>
-            {user ? (
-              <>
-                <span className="hidden text-sm text-slate-400 sm:inline">{user}</span>
-                <button onClick={logout} className="rounded-lg border border-white/15 px-4 py-2 text-sm">
-                  Log out
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setLoginOpen(!loginOpen)}
-                className="rounded-lg bg-[#ff6b35] px-4 py-2 text-sm font-bold"
-              >
-                Log in
-              </button>
-            )}
-          </div>
-        </nav>
-      </header>
+          <button
+            type="button"
+            onClick={() => {
+              logout()
+              setMenuOpen(false)
+            }}
+            className="w-full rounded-lg px-3 py-3 text-left text-sm text-red-300 transition hover:bg-red-500/10"
+          >
+            Log out
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setLoginOpen(true)
+            setMenuOpen(false)
+          }}
+          className="w-full rounded-lg px-3 py-3 text-left text-sm text-slate-200 transition hover:bg-white/[0.06]"
+        >
+          Sign in to your account
+        </button>
+      )}
+    </div>
+  </div>
+</header>
+
+
 
       <main className="mx-auto max-w-7xl px-5 py-10">
-        <section className="mb-12 grid items-center gap-8 md:grid-cols-2">
+       <section className="relative mb-16 grid items-center gap-10 overflow-hidden py-8 md:grid-cols-2 md:py-14">
           <div>
             <p className="mb-4 text-sm font-bold tracking-widest text-[#ff784b]">
               YOUR CITY. YOUR NEXT BIG MOMENT.
             </p>
-            <h1 className="text-5xl font-black leading-tight sm:text-7xl">
-              Make plans.
-              <br />
-              Make <span className="text-[#ff784b]">memories.</span>
+            <h1 className="text-5xl font-black leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">
+           Make plans.
+           <br />
+            Make <span className="bg-gradient-to-r from-[#ff784b] to-amber-300 bg-clip-text text-transparent">
+             memories.
+            </span>
             </h1>
             <p className="mt-5 max-w-lg leading-7 text-slate-400">
               Discover events, book your tickets, and get ready for experiences worth remembering.
@@ -332,7 +498,7 @@ async function myBookings() {
           <img
             src="https://images.unsplash.com/photo-1459749411175-04bf5292ceea?auto=format&fit=crop&w=1200&q=85"
             alt="Live concert"
-            className="h-64 w-full rounded-3xl object-cover sm:h-96"
+            className="h-72 w-full rounded-3xl border border-white/10 object-cover shadow-2xl shadow-orange-950/20 sm:h-[420px]"
           />
         </section>
 
@@ -404,7 +570,7 @@ async function myBookings() {
 {myTickets.map((booking: any) => (
   <article
     key={booking.id}
-    className="rounded-xl border border-white/10 bg-[#07111f] p-5"
+   className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-[#101d2e] transition duration-300 hover:-translate-y-1 hover:border-orange-400/40 hover:shadow-xl hover:shadow-orange-950/20"
   >
     <div className="flex items-start justify-between gap-3">
       <div>
@@ -469,6 +635,7 @@ async function myBookings() {
           value={booking.ticketCode}
           size={180}
           level="H"
+           marginSize={4}
           title={`QR ticket for ${booking.event?.title ?? "FlashSale event"}`}
           className="mx-auto"
         />
@@ -535,8 +702,12 @@ async function myBookings() {
             <p className="py-8 text-slate-400">No events are available right now.</p>
           )}
 
+          {!loading && !error && events.length > 0 && filteredEvents.length === 0 && (
+            <p className="py-8 text-slate-400">No events match “{searchTerm}”. Try another search.</p>
+          )}
+
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {events.map((event) => (
+            {filteredEvents.map((event) => (
               <article
                 key={event.id}
                 className="overflow-hidden rounded-2xl border border-white/10 bg-[#101d2e]"
@@ -544,7 +715,7 @@ async function myBookings() {
                 <img
                   src={`https://images.unsplash.com/${/tech|conference|ai/i.test(event.title + event.description) ? 'photo-1540575467063-178a50c2df87' : 'photo-1459749411175-04bf5292ceea'}?auto=format&fit=crop&w=800&q=80`}
                   alt={event.title}
-                  className="h-48 w-full object-cover"
+                  className="h-52 w-full object-cover transition duration-500 group-hover:scale-[1.03]"
                 />
                 <div className="p-5">
                   <p className="text-sm text-[#ff784b]">{formatDate(event.startsAt)}</p>

@@ -148,8 +148,6 @@ export async function verifyPayment(input: VerifyPaymentInput) {
   return prisma.$transaction(async (tx) => {
     const now = new Date();
 
-    const ticketCode = crypto.randomUUID();
-
 const ticketCode = crypto.randomUUID();
 
 const bookingUpdate = await tx.booking.updateMany({
