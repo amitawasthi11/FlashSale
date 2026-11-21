@@ -71,40 +71,146 @@ export async function razorpayWebhook(req: Request, res: Response) {
       return;
     }
 
-    if (payment.status === "CAPTURED") {
-      res.status(200).send("Already processed");
-      return;
-    }
+    // if (payment.status === "CAPTURED") {
+    //   res.status(200).send("Already processed");
+    //   return;
+    // }
 
-    await prisma.$transaction(async (tx) => {
-      const updatedPayment = await tx.payment.updateMany({
-        where: { id: payment.id, status: "CREATED" },
+  
+const result = await prisma.$transaction(async (tx) => {
+  const currentPayment = await tx.payment.findUnique({
+    where: { id: payment.id },
+  });
+
+  const booking = await tx.booking.findUnique({
+    where: { id: payment.bookingId },
+  });
+
+  if (!currentPayment || !booking) {
+    throw new Error("PAYMENT_OR_BOOKING_NOT_FOUND");
+  }
+
+  // Reject a different payment ID for an already captured order.
+  if (
+    currentPayment.status === "CAPTURED" &&
+    currentPayment.razorpayPaymentId !== paymentData.id
+  ) {
+    throw new Error("PAYMENT_ID_MISMATCH");
+  }
+
+  // Already confirmed: webhook retry is safe.
+  if (
+    currentPayment.status === "CAPTURED" &&
+    booking.status === "CONFIRMED"
+  ) {
+    return "Already processed";
+  }
+
+  // If the booking is still pending and valid, confirm it
+  // and generate the ticket code.
+  if (
+    booking.status === "PENDING" &&
+    booking.expiresAt &&
+    booking.expiresAt > new Date() &&
+    !currentPayment.razorpayPaymentId
+  ) {
+    const ticketCode = booking.ticketCode ?? crypto.randomUUID();
+
+    const bookingUpdate = await tx.booking.updateMany({
+      where: {
+        id: booking.id,
+        status: "PENDING",
+        expiresAt: { gt: new Date() },
+      },
+      data: {
+        status: "CONFIRMED",
+        ticketCode,
+      },
+    });
+
+    if (bookingUpdate.count !== 1) {
+      throw new Error("BOOKING_CONFIRMATION_RACE");
+    }
+  } else if (
+    booking.status === "PENDING" &&
+    booking.expiresAt &&
+    booking.expiresAt > new Date() &&
+    currentPayment.status === "CAPTURED"
+  ) {
+    // A previous webhook may have captured payment without
+    // confirming the booking. Retry confirmation safely.
+    const ticketCode = booking.ticketCode ?? crypto.randomUUID();
+
+    const bookingUpdate = await tx.booking.updateMany({
+      where: {
+        id: booking.id,
+        status: "PENDING",
+        expiresAt: { gt: new Date() },
+      },
+      data: {
+        status: "CONFIRMED",
+        ticketCode,
+      },
+    });
+
+    if (bookingUpdate.count !== 1) {
+      throw new Error("BOOKING_CONFIRMATION_RACE");
+    }
+  } else if (
+    booking.status !== "CONFIRMED" ||
+    currentPayment.status !== "CAPTURED"
+  ) {
+    // The payment may have succeeded after booking expiry.
+    // Record the captured payment for reconciliation, but
+    // never confirm an expired or cancelled booking.
+    if (currentPayment.status === "CREATED") {
+      await tx.payment.updateMany({
+        where: {
+          id: currentPayment.id,
+          status: "CREATED",
+        },
         data: {
           status: "CAPTURED",
           razorpayPaymentId: paymentData.id,
         },
       });
+    }
 
-      if (updatedPayment.count !== 1) return;
+    return "RECONCILIATION_REQUIRED";
+  }
 
-      const bookingUpdate = await tx.booking.updateMany({
-        where: {
-          id: payment.bookingId,
-          status: "PENDING",
-          expiresAt: { gt: new Date() },
-        },
-        data: { status: "CONFIRMED" },
-      });
-
-      if (bookingUpdate.count !== 1) {
-        console.error(
-          "Captured payment needs booking reconciliation:",
-          payment.bookingId
-        );
-      }
+  if (currentPayment.status === "CREATED") {
+    const paymentUpdate = await tx.payment.updateMany({
+      where: {
+        id: currentPayment.id,
+        status: "CREATED",
+      },
+      data: {
+        status: "CAPTURED",
+        razorpayPaymentId: paymentData.id,
+      },
     });
-    console.log("🔥 RAZORPAY WEBHOOK RECEIVED");
-    res.status(200).send("Webhook processed");
+
+    if (paymentUpdate.count !== 1) {
+      throw new Error("PAYMENT_UPDATE_RACE");
+    }
+  }
+
+  return "Webhook processed";
+});
+
+if (result === "RECONCILIATION_REQUIRED") {
+  console.error(
+    "Captured payment needs reconciliation/refund review:",
+    payment.bookingId
+  );
+}
+
+console.log("Razorpay webhook result:", result);
+res.status(200).send(result);
+
+    // console.log("🔥 RAZORPAY WEBHOOK RECEIVED");
+    // res.status(200).send("Webhook processed");
   } catch (error) {
     console.error("Razorpay webhook failed:", error);
     res.status(500).send("Webhook processing failed");

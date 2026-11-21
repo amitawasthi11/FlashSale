@@ -131,9 +131,8 @@ export async function verifyPayment(input: VerifyPaymentInput) {
     throw new Error("INVALID_PAYMENT_SIGNATURE");
   }
 
-  // 4. Confirm payment directly with Razorpay
-  const razorpayPayment =
-    await razorpay.payments.fetch(razorpayPaymentId);
+  // 4. Confirm payment status and amount directly with Razorpay
+  const razorpayPayment = await razorpay.payments.fetch(razorpayPaymentId);
 
   if (
     razorpayPayment.order_id !== razorpayOrderId ||
@@ -143,35 +142,53 @@ export async function verifyPayment(input: VerifyPaymentInput) {
   ) {
     throw new Error("PAYMENT_NOT_CAPTURED");
   }
-
+   // 5. Confirm booking and capture payment atomically
   // 5. Confirm booking and capture payment atomically
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const now = new Date();
+    const ticketCode = crypto.randomUUID();
 
-const ticketCode = crypto.randomUUID();
+    const bookingUpdate = await tx.booking.updateMany({
+      where: {
+        id: bookingId,
+        userId,
+        status: "PENDING",
+        expiresAt: { gt: now },
+      },
+      data: {
+        status: "CONFIRMED",
+        ticketCode,
+      },
+    });
 
-const bookingUpdate = await tx.booking.updateMany({
-  where: {
-    id: bookingId,
-    userId,
-    status: "PENDING",
-    expiresAt: { gt: now },
-  },
-  data: {
-    status: "CONFIRMED",
-    ticketCode,
-  },
-});
+    if (bookingUpdate.count !== 1) {
+      const currentBooking = await tx.booking.findUnique({
+        where: { id: bookingId },
+      });
 
-if (bookingUpdate.count !== 1) {
-  throw new Error("BOOKING_EXPIRED_OR_NOT_PENDING");
-}
+      // Case A: Webhook already confirmed this booking
+      if (currentBooking?.status === "CONFIRMED") {
+        return {
+          outcome: "ALREADY_CONFIRMED" as const,
+          ticketCode: currentBooking.ticketCode,
+        };
+      }
 
-if (bookingUpdate.count !== 1) {
-  throw new Error("BOOKING_EXPIRED_OR_NOT_PENDING");
-}
+      // Case B: Expired/cancelled — commit the CAPTURED payment for refund review
+      await tx.payment.updateMany({
+        where: {
+          id: paymentRecord.id,
+          status: "CREATED",
+        },
+        data: {
+          status: "CAPTURED",
+          razorpayPaymentId,
+          failureReason: "CAPTURED_AFTER_BOOKING_EXPIRY_OR_CANCEL",
+        },
+      });
 
-    
+      return { outcome: "RECONCILIATION_NEEDED" as const };
+    }
 
     const paymentUpdate = await tx.payment.updateMany({
       where: {
@@ -189,12 +206,30 @@ if (bookingUpdate.count !== 1) {
       throw new Error("PAYMENT_ALREADY_PROCESSED");
     }
 
-   return {
-  message: "Payment verified successfully",
-  bookingId,
-  paymentId: razorpayPaymentId,
-  ticketCode,
-  status: "CONFIRMED",
-};
+    return {
+      outcome: "CONFIRMED" as const,
+      ticketCode,
+    };
   });
+
+  if (result.outcome === "RECONCILIATION_NEEDED") {
+    throw new Error("BOOKING_EXPIRED_PAYMENT_CAPTURED_RECONCILIATION_NEEDED");
+  }
+
+  if (result.outcome === "ALREADY_CONFIRMED") {
+    return {
+      message: "Payment already verified",
+      bookingId,
+      ticketCode: result.ticketCode,
+      status: "CONFIRMED",
+    };
+  }
+
+  return {
+    message: "Payment verified successfully",
+    bookingId,
+    paymentId: razorpayPaymentId,
+    ticketCode: result.ticketCode,
+    status: "CONFIRMED",
+  }
 }
