@@ -59,6 +59,7 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
         select: {
           totalSeats: true,
           availableSeats: true,
+          priceInPaise: true,
           isCancelled: true,
         },
       });
@@ -68,9 +69,14 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 
       const bookedSeats = current.totalSeats - current.availableSeats;
 
+      if (bookedSeats > 0 && eventData.priceInPaise !== current.priceInPaise) {
+        throw new Error("PRICE_LOCKED_WITH_BOOKINGS");
+      }
+
       if (totalSeats < bookedSeats) {
         throw new Error("TOTAL_SEATS_BELOW_BOOKED");
       }
+      
 
       return tx.event.update({
         where: { id: req.params.id },
@@ -159,76 +165,147 @@ router.delete("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 // Cancel event — Admin only
+// Cancel event — Admin only
 router.patch("/:id/cancel", requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    const event = await prisma.event.findUnique({
-      where: { id: req.params.id },
-      select: { id: true, isCancelled: true },
-    });
-
-    if (!event) {
-      res.status(404).json({
-        success: false,
-        message: "Event not found",
+    const result = await prisma.$transaction(async (tx) => {
+      const event = await tx.event.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, isCancelled: true },
       });
-      return;
-    }
 
-    if (event.isCancelled) {
-      res.status(409).json({
-        success: false,
-        message: "Event is already cancelled",
+      if (!event) throw new Error("EVENT_NOT_FOUND");
+      if (event.isCancelled) throw new Error("EVENT_ALREADY_CANCELLED");
+
+      // Find all pending bookings to restore their reserved seats
+      const pendingBookings = await tx.booking.findMany({
+        where: { eventId: event.id, status: "PENDING" },
+        select: { id: true, quantity: true },
       });
-      return;
-    }
 
-    const updatedEvent = await prisma.event.update({
-      where: { id: event.id },
-      data: { isCancelled: true },
+      const seatsToRestore = pendingBookings.reduce(
+        (sum, b) => sum + b.quantity,
+        0
+      );
+
+      // Cancel all pending bookings
+      const cancelledPending = await tx.booking.updateMany({
+        where: { eventId: event.id, status: "PENDING" },
+        data: { status: "CANCELLED" },
+      });
+
+      // Count confirmed bookings that will require manual/automated refunds
+      const confirmedBookingsToRefund = await tx.booking.count({
+        where: { eventId: event.id, status: "CONFIRMED" },
+      });
+
+      // Mark event cancelled and restore seats from pending bookings
+      const updatedEvent = await tx.event.update({
+        where: { id: event.id },
+        data: {
+          isCancelled: true,
+          ...(seatsToRestore > 0 && {
+            availableSeats: { increment: seatsToRestore },
+          }),
+        },
+      });
+
+      return {
+        updatedEvent,
+        cancelledPendingCount: cancelledPending.count,
+        confirmedBookingsToRefund,
+      };
     });
 
     res.status(200).json({
       success: true,
       message: "Event cancelled successfully",
-      data: updatedEvent,
+      data: result.updatedEvent,
+      meta: {
+        cancelledPendingBookings: result.cancelledPendingCount,
+        confirmedBookingsToRefund: result.confirmedBookingsToRefund,
+      },
     });
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "EVENT_NOT_FOUND") {
+        res.status(404).json({ success: false, message: "Event not found" });
+        return;
+      }
+      if (error.message === "EVENT_ALREADY_CANCELLED") {
+        res.status(409).json({ success: false, message: "Event is already cancelled" });
+        return;
+      }
+    }
     next(error);
   }
 });
 
-// Get one event — Public
-router.get("/:id", async (req, res, next) => {
+// Get all active events — Public (supports search, filters, sorting, pagination)
+router.get("/", async (req, res, next) => {
   try {
-    const event = await prisma.event.findUnique({
-      where: { id: req.params.id },
-    });
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+    const skip = (page - 1) * limit;
 
-    if (!event) {
-      res.status(404).json({
-        success: false,
-        message: "Event not found",
-      });
-      return;
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const venue = typeof req.query.venue === "string" ? req.query.venue.trim() : "";
+    const fromDate = typeof req.query.fromDate === "string" ? new Date(req.query.fromDate) : null;
+    const toDate = typeof req.query.toDate === "string" ? new Date(req.query.toDate) : null;
+    const includePast = req.query.includePast === "true";
+
+    // Build dynamic filter
+    const where: any = {
+      isCancelled: false,
+    };
+
+    if (!includePast) {
+      where.startsAt = { gte: new Date() };
     }
 
-    res.status(200).json({ success: true, data: event });
-  } catch (error) {
-    next(error);
-  }
-});
+    if (fromDate && !Number.isNaN(fromDate.getTime())) {
+      where.startsAt = { ...where.startsAt, gte: fromDate };
+    }
 
-// Get all events — Public
-router.get("/", async (_req, res, next) => {
-  try {
-    const events = await prisma.event.findMany({
-      orderBy: { startsAt: "asc" },
-    });
+    if (toDate && !Number.isNaN(toDate.getTime())) {
+      where.startsAt = { ...where.startsAt, lte: toDate };
+    }
+
+    if (venue) {
+      where.venue = { contains: venue, mode: "insensitive" };
+    }
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+        { venue: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    // Allowed sort fields
+    const sortBy = req.query.sortBy === "priceInPaise" ? "priceInPaise" : "startsAt";
+    const order = req.query.order === "desc" ? "desc" : "asc";
+
+    const [events, total] = await Promise.all([
+      prisma.event.findMany({
+        where,
+        orderBy: { [sortBy]: order },
+        skip,
+        take: limit,
+      }),
+      prisma.event.count({ where }),
+    ]);
 
     res.status(200).json({
       success: true,
-      count: events.length,
       data: events,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     next(error);
