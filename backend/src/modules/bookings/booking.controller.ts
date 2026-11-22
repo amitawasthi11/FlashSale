@@ -1,5 +1,6 @@
 
 import type { Request, Response, NextFunction } from "express";
+import { checkInTicket } from "./booking.service";
 import {
   createBooking,
   cancelBooking,
@@ -147,6 +148,88 @@ export async function myBookings(
     const bookings = await getMyBookings(userId);
     res.status(200).json({ success: true, bookings });
   } catch (error) {
+    next(error);
+  }
+}
+export async function checkInHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { ticketCode, eventId } = req.body ?? {};
+
+    if (
+      typeof ticketCode !== "string" ||
+      !ticketCode.trim() ||
+      typeof eventId !== "string" ||
+      !eventId.trim()
+    ) {
+      res.status(400).json({
+        success: false,
+        code: "INVALID_INPUT",
+        message: "Both ticketCode and eventId are required",
+      });
+      return;
+    }
+
+    const booking = await checkInTicket(ticketCode.trim(), eventId.trim());
+
+    res.status(200).json({
+      success: true,
+      message: "Ticket valid — attendee checked in",
+      data: { booking },
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "INVALID_TICKET") {
+        res.status(404).json({
+          success: false,
+          code: "INVALID_TICKET",
+          message: "Invalid or unrecognized ticket code",
+        });
+        return;
+      }
+
+      if (error.message.startsWith("WRONG_EVENT:")) {
+        const actualEvent = error.message.split(":")[1];
+        res.status(400).json({
+          success: false,
+          code: "WRONG_EVENT",
+          message: `This ticket belongs to "${actualEvent}", not the selected event`,
+        });
+        return;
+      }
+
+      if (error.message === "EVENT_CANCELLED") {
+        res.status(409).json({
+          success: false,
+          code: "EVENT_CANCELLED",
+          message: "This event has been cancelled",
+        });
+        return;
+      }
+
+      if (error.message === "TICKET_NOT_CONFIRMED") {
+        res.status(400).json({
+          success: false,
+          code: "TICKET_NOT_CONFIRMED",
+          message: "Ticket is unpaid or has been cancelled",
+        });
+        return;
+      }
+
+      if (error.message.startsWith("ALREADY_CHECKED_IN:")) {
+        const scannedAt = error.message.slice("ALREADY_CHECKED_IN:".length);
+        res.status(409).json({
+          success: false,
+          code: "ALREADY_USED",
+          message: `Ticket was already checked in at ${scannedAt}`,
+        });
+        return;
+      }
+    }
+
     next(error);
   }
 }

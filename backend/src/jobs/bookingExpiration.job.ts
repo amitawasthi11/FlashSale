@@ -1,20 +1,24 @@
-
 import cron from "node-cron";
 import { expirePendingBookings } from "../modules/bookings/booking.service";
 
+let isRunning = false;
+
 export function startBookingExpirationJob() {
-  console.log("Expiration function:", typeof expirePendingBookings);
-
   cron.schedule("* * * * *", async () => {
-    try {
-      const result = await expirePendingBookings();
+    if (isRunning) return;
+    isRunning = true;
 
-      console.log("Expiration result:", result);
-      console.log("Result type:", typeof result);
+    try {
+      const expiredCount = await expirePendingBookings();
+      if (expiredCount > 0) {
+        console.log(`[ExpiryJob] Expired ${expiredCount} booking(s) and restored seats.`);
+      }
     } catch (error) {
-      console.error("Booking expiration job failed:", error);
+      console.error("[ExpiryJob] Booking expiration failed:", error);
+    } finally {
+      isRunning = false;
     }
   });
 
-  console.log("Booking expiration job started.");
+  console.log("Booking expiration job scheduled (every 1 minute).");
 }

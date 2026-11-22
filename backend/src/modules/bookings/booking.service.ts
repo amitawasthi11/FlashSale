@@ -155,3 +155,66 @@ export async function expirePendingBookings() {
     return expiredCount;
   });
 }
+export async function checkInTicket(ticketCode: string, eventId: string) {
+  const checkedInAt = new Date();
+
+  // 1. Atomically mark ticket as checked in ONLY if valid, confirmed, unused, and matches the event
+  const result = await prisma.booking.updateMany({
+    where: {
+      ticketCode,
+      eventId,
+      status: "CONFIRMED",
+      checkedInAt: null,
+      event: { isCancelled: false },
+    },
+    data: { checkedInAt },
+  });
+
+  // 2. If updated, return attendee and ticket details for the scanner screen
+  if (result.count === 1) {
+    return prisma.booking.findUniqueOrThrow({
+      where: { ticketCode },
+      select: {
+        id: true,
+        ticketCode: true,
+        quantity: true,
+        checkedInAt: true,
+        user: { select: { name: true, email: true } },
+        event: { select: { id: true, title: true } },
+      },
+    });
+  }
+
+  // 3. Otherwise, inspect the ticket to give the gate scanner an exact reason
+  const booking = await prisma.booking.findUnique({
+    where: { ticketCode },
+    select: {
+      eventId: true,
+      status: true,
+      checkedInAt: true,
+      event: { select: { title: true, isCancelled: true } },
+    },
+  });
+
+  if (!booking) {
+    throw new Error("INVALID_TICKET");
+  }
+
+  if (booking.eventId !== eventId) {
+    throw new Error(`WRONG_EVENT:${booking.event.title}`);
+  }
+
+  if (booking.event.isCancelled) {
+    throw new Error("EVENT_CANCELLED");
+  }
+
+  if (booking.status !== "CONFIRMED") {
+    throw new Error("TICKET_NOT_CONFIRMED");
+  }
+
+  if (booking.checkedInAt) {
+    throw new Error(`ALREADY_CHECKED_IN:${booking.checkedInAt.toISOString()}`);
+  }
+
+  throw new Error("CHECK_IN_FAILED");
+}
