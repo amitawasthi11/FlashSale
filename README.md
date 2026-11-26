@@ -2,7 +2,7 @@
 
 A full-stack event booking platform built to **prevent overselling under flash-sale traffic**, **process payment webhooks idempotently**, and **automatically release abandoned seat reservations**. It includes QR-based, single-use gate check-in for admins.
 
-**Live Demo:** `<add Vercel URL>` · **API Health:** `<add Render URL>/api/health`
+**Live Demo:** `<flash-sale-3sqv.vercel.app>` · **API Health:** `<https://flashsale-q82a.onrender.com/api>`
 > The backend runs on a free tier, so the first request may take ~30 seconds to wake up.
 
 <!-- Add 3-4 screenshots or a short GIF here: event list, checkout, My Tickets QR, gate scanner -->

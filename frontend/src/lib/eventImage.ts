@@ -24,13 +24,15 @@ const IMAGE_POOLS: Record<string, string[]> = {
   ],
 }
 
-export function getEventImage(event: {
+export function getEventImage(event?: {
   id?: string
   title?: string
   description?: string | null
   imageUrl?: string | null
-}): string {
+} | null): string {
+  if (!event) return IMAGE_POOLS.concert[0]
   if (event.imageUrl?.trim()) return event.imageUrl.trim()
+  // ... rest of function stays identical) return event.imageUrl.trim()
 
   const text = `${event.title ?? ''} ${event.description ?? ''}`.toLowerCase()
 
