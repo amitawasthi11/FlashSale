@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import api from './lib/api'
 import {getEventImage} from './lib/eventImage'
-import { Search, MapPin,ShieldCheck, ChevronDown, ArrowRight, Ticket, Menu, X } from 'lucide-react'
+import { Search, MapPin,ShieldCheck, ChevronDown, Ticket, Menu, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import AdminPanel from './components/AdminPanel'
 type EventItem = {
@@ -561,11 +561,13 @@ function logout() {
             </a>
           </div>
 
-          <img
-  src={getEventImage(event)}
-  alt={event.title}
-  className="h-52 w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-/>
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#101d2e] shadow-2xl">
+            <img
+              src={getEventImage(events[0] ?? { title: 'Live Concert', description: 'Live music festival' })}
+              alt={events[0]?.title ?? 'Featured live event'}
+              className="h-72 w-full object-cover sm:h-80"
+            />
+          </div>
         </section>
 
       {loginOpen && (
