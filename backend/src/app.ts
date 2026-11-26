@@ -10,7 +10,13 @@ import authRoutes from "./modules/auth/auth.routes";
 import paymentRoutes from "./modules/payments/payment.routes";
 
 const app = express();
+app.set('trust proxy', 1)
 
+const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim());
+
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 // 1. Webhook MUST stay before express.json() and rate limiters
 app.post(
   "/api/payments/webhook",
@@ -61,6 +67,7 @@ app.use((_req, res) => {
     message: "Route not found",
   });
 });
+
 
 app.use(errorHandler);
 

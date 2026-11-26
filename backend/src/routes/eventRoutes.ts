@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { createEventSchema } from "../schemas/eventSchema.js";
@@ -40,6 +39,7 @@ router.post("/", requireAuth, requireAdmin, async (req, res, next) => {
 // Update event — Admin only
 router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
   try {
+    const id = String(req.params.id);
     const result = createEventSchema.safeParse(req.body);
 
     if (!result.success) {
@@ -55,7 +55,7 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 
     const event = await prisma.$transaction(async (tx) => {
       const current = await tx.event.findUnique({
-        where: { id: req.params.id },
+        where: { id },
         select: {
           totalSeats: true,
           availableSeats: true,
@@ -76,10 +76,9 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
       if (totalSeats < bookedSeats) {
         throw new Error("TOTAL_SEATS_BELOW_BOOKED");
       }
-      
 
       return tx.event.update({
-        where: { id: req.params.id },
+        where: { id },
         data: {
           ...eventData,
           totalSeats,
@@ -123,7 +122,7 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 // Delete event — Admin only
 router.delete("/:id", requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    const eventId = req.params.id;
+    const eventId = String(req.params.id);
 
     const existingEvent = await prisma.event.findUnique({
       where: { id: eventId },
@@ -165,12 +164,13 @@ router.delete("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 // Cancel event — Admin only
-// Cancel event — Admin only
 router.patch("/:id/cancel", requireAuth, requireAdmin, async (req, res, next) => {
   try {
+    const id = String(req.params.id);
+
     const result = await prisma.$transaction(async (tx) => {
       const event = await tx.event.findUnique({
-        where: { id: req.params.id },
+        where: { id },
         select: { id: true, isCancelled: true },
       });
 

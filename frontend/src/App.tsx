@@ -1,9 +1,10 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import api from './lib/api'
-import { Search, MapPin, ChevronDown, ArrowRight, Ticket, Menu, X } from 'lucide-react'
+import {getEventImage} from './lib/eventImage'
+import { Search, MapPin,ShieldCheck, ChevronDown, ArrowRight, Ticket, Menu, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
-
+import AdminPanel from './components/AdminPanel'
 type EventItem = {
   id: string
   title: string
@@ -39,6 +40,12 @@ export default function App() {
   const [user, setUser] = useState(
     () => localStorage.getItem('flashsale_user_email') || '',
   )
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [name, setName] = useState('')
+  const [role, setRole] = useState(
+    () => localStorage.getItem('flashsale_user_role') || 'USER',
+  )
+  const [adminOpen, setAdminOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [myTickets, setMyTickets] = useState<any[]>([])
@@ -63,14 +70,19 @@ export default function App() {
     void loadEvents()
   }, [])
 
-  async function login(e: FormEvent<HTMLFormElement>) {
+  async function handleAuthSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setBusy(true)
     setNotice('')
     try {
+      if (authMode === 'register') {
+        await api.post('/auth/register', { name, email, password })
+      }
+
       const response = await api.post('/auth/login', { email, password })
       const data = response.data?.data ?? response.data
       const token = data.token ?? data.accessToken
+      const userRole = data.user?.role || 'USER'
 
       if (!token) {
         throw new Error('No token returned. Check your backend login response.')
@@ -78,16 +90,36 @@ export default function App() {
 
       localStorage.setItem('flashsale_token', token)
       localStorage.setItem('flashsale_user_email', email)
+      localStorage.setItem('flashsale_user_role', userRole)
       setUser(email)
+      setRole(userRole)
       setLoginOpen(false)
       setPassword('')
-      setNotice('Logged in successfully.')
+      setName('')
+      setNotice(
+        authMode === 'register'
+          ? 'Account created and logged in!'
+          : 'Logged in successfully.',
+      )
     } catch (err: any) {
-      setNotice(err.response?.data?.message || err.message || 'Login failed')
+      setNotice(err.response?.data?.message || err.message || 'Authentication failed')
     } finally {
       setBusy(false)
     }
   }
+  
+  useEffect(() => {
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setLoginOpen(false)
+      setShowTickets(false)
+      setAdminOpen(false)
+      setSelected(null)
+    }
+  }
+  window.addEventListener('keydown', onKeyDown)
+  return () => window.removeEventListener('keydown', onKeyDown)
+}, [])
 
   useEffect(() => {
   let lastScrollY = window.scrollY
@@ -290,12 +322,35 @@ async function myBookings() {
   }
 }
 
-  function logout() {
-    localStorage.removeItem('flashsale_token')
-    localStorage.removeItem('flashsale_user_email')
-    setUser('')
-    setNotice('You have logged out.')
+async function cancelPendingBooking(bookingId: string) {
+  try {
+    setBusy(true)
+    await api.patch(`/bookings/${bookingId}/cancel`)
+    setNotice('Pending reservation cancelled and seats released.')
+    await myBookings()
+    await loadEvents()
+  } catch (err: any) {
+    setNotice(err.response?.data?.message || 'Could not cancel booking.')
+  } finally {
+    setBusy(false)
   }
+}
+
+function logout() {
+  localStorage.removeItem('flashsale_user_role')
+  setRole('USER')
+  setAdminOpen(false)
+  localStorage.removeItem('flashsale_token')
+  localStorage.removeItem('flashsale_user_email')
+  setUser('')
+  setNotice('You have logged out.')
+}
+  // function logout() {
+  //   localStorage.removeItem('flashsale_token')
+  //   localStorage.removeItem('flashsale_user_email')
+  //   setUser('')
+  //   setNotice('You have logged out.')
+  // }
 
   const formatDate = (value: string) =>
     new Date(value).toLocaleString('en-IN', {
@@ -433,6 +488,20 @@ async function myBookings() {
 
       {user ? (
         <>
+          {role === 'ADMIN' && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false)
+                setAdminOpen(true)
+              }}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold text-amber-300 transition hover:bg-white/[0.06]"
+            >
+              <ShieldCheck size={18} className="text-[#ff784b]" />
+              Admin Console (Scanner)
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {
@@ -471,9 +540,6 @@ async function myBookings() {
     </div>
   </div>
 </header>
-
-
-
       <main className="mx-auto max-w-7xl px-5 py-10">
        <section className="relative mb-16 grid items-center gap-10 overflow-hidden py-8 md:grid-cols-2 md:py-14">
           <div>
@@ -496,42 +562,102 @@ async function myBookings() {
           </div>
 
           <img
-            src="https://images.unsplash.com/photo-1459749411175-04bf5292ceea?auto=format&fit=crop&w=1200&q=85"
-            alt="Live concert"
-            className="h-72 w-full rounded-3xl border border-white/10 object-cover shadow-2xl shadow-orange-950/20 sm:h-[420px]"
-          />
+  src={getEventImage(event)}
+  alt={event.title}
+  className="h-52 w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+/>
         </section>
 
-        {loginOpen && (
-          <form
-            onSubmit={login}
-            className="mb-10 max-w-md rounded-2xl border border-white/10 bg-[#101d2e] p-6"
-          >
-            <h2 className="mb-4 text-xl font-bold">Welcome back</h2>
-            <label className="mb-2 block text-sm text-slate-400">Email</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mb-4 w-full rounded-lg border border-white/10 bg-[#07111f] p-3 outline-none focus:border-orange-500"
-            />
-            <label className="mb-2 block text-sm text-slate-400">Password</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mb-5 w-full rounded-lg border border-white/10 bg-[#07111f] p-3 outline-none focus:border-orange-500"
-            />
-            <button
-              disabled={busy}
-              className="w-full rounded-lg bg-[#ff6b35] p-3 font-bold disabled:opacity-50"
-            >
-              {busy ? 'Please wait…' : 'Log in'}
-            </button>
-          </form>
-        )}
+      {loginOpen && (
+  <div
+    onClick={() => setLoginOpen(false)}
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+  >
+    <form
+      onSubmit={handleAuthSubmit}
+      onClick={(e) => e.stopPropagation()}
+      className="w-full max-w-md rounded-2xl border border-white/10 bg-[#101d2e] p-6 shadow-2xl shadow-black/60 sm:p-8"
+    >
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-bold tracking-widest text-[#ff784b]">
+            FLASHSALE ACCOUNT
+          </p>
+          <h2 className="mt-1 text-2xl font-black text-white">
+            {authMode === 'login' ? 'Welcome back' : 'Create your account'}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => setLoginOpen(false)}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-slate-400 transition hover:bg-white/10 hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+
+      {authMode === 'register' && (
+        <>
+          <label className="mb-1.5 block text-sm text-slate-400">Full Name</label>
+          <input
+            type="text"
+            required
+            minLength={2}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Amit Awasthi"
+            className="mb-4 w-full rounded-xl border border-white/10 bg-[#07111f] p-3 text-white outline-none focus:border-orange-500"
+          />
+        </>
+      )}
+
+      <label className="mb-1.5 block text-sm text-slate-400">Email</label>
+      <input
+        type="email"
+        required
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="you@example.com"
+        className="mb-4 w-full rounded-xl border border-white/10 bg-[#07111f] p-3 text-white outline-none focus:border-orange-500"
+      />
+
+      <label className="mb-1.5 block text-sm text-slate-400">Password</label>
+      <input
+        type="password"
+        required
+        minLength={8}
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="••••••••"
+        className="mb-6 w-full rounded-xl border border-white/10 bg-[#07111f] p-3 text-white outline-none focus:border-orange-500"
+      />
+
+      <button
+        disabled={busy}
+        className="w-full rounded-xl bg-[#ff6b35] p-3.5 font-bold text-white transition hover:bg-[#ff8052] disabled:opacity-50"
+      >
+        {busy
+          ? 'Please wait…'
+          : authMode === 'login'
+            ? 'Log in'
+            : 'Create account'}
+      </button>
+
+      <p className="mt-5 text-center text-sm text-slate-400">
+        {authMode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+        <button
+          type="button"
+          onClick={() =>
+            setAuthMode((m) => (m === 'login' ? 'register' : 'login'))
+          }
+          className="font-semibold text-[#ff784b] hover:underline"
+        >
+          {authMode === 'login' ? 'Sign up' : 'Log in'}
+        </button>
+      </p>
+    </form>
+  </div>
+)}
 
         {notice && (
           <div className="mb-6 whitespace-pre-line rounded-xl border border-orange-400/20 bg-orange-400/10 p-4 text-sm">
@@ -543,134 +669,172 @@ async function myBookings() {
         )}
 
 
-          
-{showTickets && (
-  <section className="mb-12 rounded-2xl border border-white/10 bg-[#101d2e] p-6">
-    <div className="mb-6 flex items-center justify-between gap-3">
-      <div>
-        <p className="text-sm font-bold tracking-widest text-[#ff784b]">
-          YOUR BOOKINGS
-        </p>
-        <h2 className="mt-2 text-2xl font-black">My Tickets</h2>
-      </div>
-
-      <button
-        onClick={() => setShowTickets(false)}
-        className="rounded-lg border border-white/15 px-4 py-2"
-      >
-        Close
-      </button>
-    </div>
-
-    {myTickets.length === 0 ? (
-      <p className="text-slate-400">No bookings found.</p>
-    ) : (
-      <div className="grid gap-4 md:grid-cols-2">
-        
-{myTickets.map((booking: any) => (
-  <article
-    key={booking.id}
-   className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-[#101d2e] transition duration-300 hover:-translate-y-1 hover:border-orange-400/40 hover:shadow-xl hover:shadow-orange-950/20"
+  {adminOpen && role === 'ADMIN' && (
+  <div
+    onClick={() => setAdminOpen(false)}
+    className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 pt-12 backdrop-blur-sm sm:pt-16"
   >
-    <div className="flex items-start justify-between gap-3">
-      <div>
-        <h3 className="text-lg font-bold">
-          {booking.event?.title ??
-            booking.eventTitle ??
-            "Event Ticket"}
-        </h3>
+    <div onClick={(e) => e.stopPropagation()} className="w-full max-w-4xl">
+      <AdminPanel
+        events={events}
+        onEventCreated={loadEvents}
+        onClose={() => setAdminOpen(false)}
+      />
+    </div>
+  </div>
+)}
 
-        <p className="mt-1 text-sm text-slate-400">
-          {booking.event?.venue ?? booking.event?.location ?? ""}
-        </p>
 
-        {booking.event?.startsAt && (
-          <p className="mt-1 text-sm text-slate-400">
-            {new Date(booking.event.startsAt).toLocaleString("en-IN", {
-              dateStyle: "medium",
-              timeStyle: "short",
-              timeZone: "Asia/Kolkata",
-            })}
+  
+
+       {showTickets && (
+  <div
+    onClick={() => setShowTickets(false)}
+    className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 pt-12 backdrop-blur-sm sm:pt-16"
+  >
+    <section
+      onClick={(e) => e.stopPropagation()}
+      className="my-4 w-full max-w-4xl rounded-2xl border border-white/10 bg-[#0d1828] p-6 shadow-2xl shadow-black/60 sm:p-8"
+    >
+      <div className="mb-6 flex items-center justify-between gap-3 border-b border-white/10 pb-4">
+        <div>
+          <p className="text-xs font-bold tracking-widest text-[#ff784b]">
+            YOUR BOOKINGS
           </p>
-        )}
+          <h2 className="mt-1 text-2xl font-black text-white">My Tickets</h2>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowTickets(false)}
+          className="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+        >
+          Close ✕
+        </button>
       </div>
 
-      <span className="rounded-full bg-orange-400/10 px-3 py-1 text-xs font-bold text-orange-300">
-        {booking.status}
-      </span>
-    </div>
+      {myTickets.length === 0 ? (
+        <p className="py-10 text-center text-slate-400">No bookings found.</p>
+      ) : (
+        <div className="grid max-h-[72vh] gap-4 overflow-y-auto pr-1 md:grid-cols-2">
+          {myTickets.map((booking: any) => (
+            <article
+              key={booking.id}
+              className="rounded-2xl border border-white/[0.08] bg-[#101d2e] p-5 transition duration-300 hover:border-orange-400/40"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-white">
+                    {booking.event?.title ??
+                      booking.eventTitle ??
+                      'Event Ticket'}
+                  </h3>
 
-    <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
-      <div>
-        <p className="text-slate-500">Booking ID</p>
-        <p className="mt-1 break-all">{booking.id}</p>
-      </div>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {booking.event?.venue ?? booking.event?.location ?? ''}
+                  </p>
 
-      <div>
-        <p className="text-slate-500">Tickets</p>
-        <p className="mt-1 font-bold">{booking.quantity}</p>
-      </div>
+                  {booking.event?.startsAt && (
+                    <p className="mt-1 text-sm text-slate-400">
+                      {new Date(booking.event.startsAt).toLocaleString('en-IN', {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                        timeZone: 'Asia/Kolkata',
+                      })}
+                    </p>
+                  )}
+                </div>
 
-      <div>
-        <p className="text-slate-500">Total</p>
-        <p className="mt-1 font-bold">
-          ₹{((booking.totalAmountPaise ?? 0) / 100).toLocaleString("en-IN")}
-        </p>
-      </div>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-bold ${
+                    booking.status === 'CONFIRMED'
+                      ? 'bg-emerald-400/15 text-emerald-300'
+                      : booking.status === 'CANCELLED'
+                        ? 'bg-red-400/15 text-red-300'
+                        : 'bg-orange-400/15 text-orange-300'
+                  }`}
+                >
+                  {booking.status}
+                </span>
+              </div>
 
-      <div>
-        <p className="text-slate-500">Booked on</p>
-        <p className="mt-1">
-          {booking.createdAt
-            ? new Date(booking.createdAt).toLocaleDateString("en-IN")
-            : "—"}
-        </p>
-      </div>
-    </div>
+              <div className="mt-5 grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-slate-500">Booking ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-slate-300">
+                    {booking.id}
+                  </p>
+                </div>
 
-    {/* QR ticket for confirmed bookings */}
-    {booking.status === "CONFIRMED" && booking.ticketCode && (
-      <div className="mt-6 rounded-xl border border-white/10 bg-white p-5 text-center">
-        <QRCodeSVG
-          value={booking.ticketCode}
-          size={180}
-          level="H"
-           marginSize={4}
-          title={`QR ticket for ${booking.event?.title ?? "FlashSale event"}`}
-          className="mx-auto"
-        />
+                <div>
+                  <p className="text-slate-500">Tickets</p>
+                  <p className="mt-1 font-bold">{booking.quantity}</p>
+                </div>
 
-        <p className="mt-4 font-bold text-slate-900">
-          Your entry ticket
-        </p>
+                <div>
+                  <p className="text-slate-500">Total</p>
+                  <p className="mt-1 font-bold">
+                    ₹{((booking.totalAmountPaise ?? 0) / 100).toLocaleString('en-IN')}
+                  </p>
+                </div>
 
-        <p className="mt-2 break-all font-mono text-xs text-slate-600">
-          {booking.ticketCode}
-        </p>
+                <div>
+                  <p className="text-slate-500">Booked on</p>
+                  <p className="mt-1">
+                    {booking.createdAt
+                      ? new Date(booking.createdAt).toLocaleDateString('en-IN')
+                      : '—'}
+                  </p>
+                </div>
+              </div>
 
-        <p className="mt-3 text-xs text-slate-500">
-          Show this QR code at the event entrance.
-        </p>
-      </div>
-    )}
+              {/* QR ticket for confirmed bookings */}
+              {booking.status === 'CONFIRMED' && booking.ticketCode && (
+                <div className="mt-6 rounded-xl border border-white/10 bg-white p-5 text-center">
+                  <QRCodeSVG
+                    value={booking.ticketCode}
+                    size={170}
+                    level="H"
+                    marginSize={4}
+                    title={`QR ticket for ${booking.event?.title ?? 'FlashSale event'}`}
+                    className="mx-auto"
+                  />
 
-    {booking.status === "CONFIRMED" && !booking.ticketCode && (
-      <p className="mt-5 text-sm text-amber-300">
-        Your booking is confirmed, but its ticket code is not available.
-      </p>
-    )}
+                  <p className="mt-3 font-bold text-slate-900">
+                    Your entry ticket
+                  </p>
 
-    {booking.status === "PENDING" && (
-      <p className="mt-5 text-sm text-amber-300">
-        Payment is pending. Your QR ticket will appear after confirmation.
-      </p>
-    )}
-  </article>
-))}
+                  <p className="mt-1 break-all font-mono text-xs text-slate-600">
+                    {booking.ticketCode}
+                  </p>
 
-      </div>
-    )}
-  </section>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Show this QR code at the event entrance.
+                  </p>
+                </div>
+              )}
+
+              {booking.status === 'PENDING' && (
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+                  <p className="text-xs text-amber-300">
+                    Payment pending. Release seats if not paying.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void cancelPendingBooking(booking.id)}
+                    className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20"
+                  >
+                    Cancel Reservation
+                  </button>
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  </div>
 )}
 
         <section id="events">
