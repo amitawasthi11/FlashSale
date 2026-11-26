@@ -1,110 +1,160 @@
-# FlashSale — High-Concurrency Event Ticketing & Gate Verification Platform
+# FlashSale: High-Concurrency Event Ticketing & QR Gate Check-In
 
-A full-stack event booking and QR-based gate check-in platform engineered to prevent ticket overselling under flash-sale traffic spikes, handle asynchronous payment webhooks idempotently, and self-heal abandoned seat reservations.
+A full-stack event booking platform built to **prevent overselling under flash-sale traffic**, **process payment webhooks idempotently**, and **automatically release abandoned seat reservations**. It includes QR-based, single-use gate check-in for admins.
 
-> **Live Demo:** `[Add your Vercel URL here]` · **API Health:** `[Add your Render URL/api/health here]`
+**Live Demo:** `<add Vercel URL>` · **API Health:** `<add Render URL>/api/health`
+> The backend runs on a free tier, so the first request may take ~30 seconds to wake up.
 
----
-
-## Problem Statement
-
-Standard CRUD ticketing applications fail under sudden flash-sale traffic in three predictable ways:
-
-1. **Race Conditions & Overselling:** When dozens of users attempt to book the last few tickets simultaneously, a naive `SELECT availableSeats` followed by `UPDATE availableSeats` creates a check-then-act race window, selling more tickets than physical venue capacity.
-2. **Zombie Seat Locks:** Users frequently initiate checkout and close the browser tab without paying. Without automated cleanup, those seats remain locked indefinitely and reduce real revenue.
-3. **Dropped Confirmations & Duplicate Webhooks:** Relying solely on frontend payment callbacks loses paid bookings if a user loses network connectivity right after UPI/card deduction, while payment gateways routinely retry webhooks and risk issuing duplicate tickets.
+<!-- Add 3-4 screenshots or a short GIF here: event list, checkout, My Tickets QR, gate scanner -->
 
 ---
 
-## Engineering Approach & Architecture
+## Problem
 
-### 1. Atomic Seat Reservation (Zero Overselling)
-Instead of application-level locks or optimistic read-then-write checks, seat deduction is executed inside a **Prisma interactive PostgreSQL transaction** using a conditional atomic `updateMany`:
-- Decrements `availableSeats` **only if** `availableSeats >= quantity` and `isCancelled = false` in a single database statement.
-- If `count === 0`, the transaction immediately rolls back and returns a clean `409 Conflict` (`INSUFFICIENT_SEATS`), guaranteeing strict inventory invariants even under heavy concurrent load.
+Basic CRUD ticketing apps break under sudden traffic in three predictable ways:
 
-### 2. Dual-Path Idempotent Payment Pipeline (Razorpay)
-- **Server-Authoritative Pricing:** Order amounts are computed strictly from database ticket prices in paise—never trusted from client payloads.
-- **Frontend Signature Verification + Async Webhooks:** Bookings confirm via either HMAC-SHA256 signature verification (`/api/payments/verify`) or Razorpay's asynchronous `payment.captured` webhook (`/api/payments/webhook` using raw request body verification).
-- **Idempotency Guards:** Repeated webhook deliveries or concurrent verify calls detect already-confirmed bookings/payments and return safely without double-decrementing inventory or regenerating ticket UUIDs.
+1. **Overselling.** A read-then-write seat check (`SELECT` then `UPDATE`) leaves a race window where concurrent users buy the same last seats.
+2. **Zombie seat locks.** Users start checkout and close the tab. Without cleanup, those seats stay locked and revenue is lost.
+3. **Lost or duplicated confirmations.** Relying only on the browser's payment callback loses paid bookings when the user drops offline. Gateways also retry webhooks, which can issue duplicate tickets.
 
-### 3. Self-Healing Reservation Expiry Worker
-- Every `PENDING` booking receives a **10-minute reservation window** (`expiresAt`).
-- A background scheduler periodically scans expired `PENDING` bookings, marks them `CANCELLED`, and atomically restores `availableSeats` back to the event pool. Users can also manually cancel pending reservations immediately from **My Tickets**.
+## Solution
 
-### 4. Role-Based Access Control & Gate QR Check-In
+### 1. Atomic seat reservation
+Seats are reserved inside a Prisma interactive transaction using a single conditional update:
+
+- Decrement `availableSeats` **only if** `availableSeats >= quantity` and the event is not cancelled, in one SQL statement.
+- If no row is updated, the transaction rolls back and the API returns `409 INSUFFICIENT_SEATS`.
+
+The database enforces the inventory invariant. No application-level locks are needed.
+
+### 2. Dual-path idempotent payments (Razorpay)
+- **Server-authoritative pricing:** the order amount is computed from database prices (in paise), never from client input.
+- **Two confirmation paths:** the checkout callback (`/api/payments/verify`, HMAC-SHA256 signature plus a direct fetch from Razorpay to check order, amount, currency and `captured` status), and the asynchronous `payment.captured` webhook (raw-body signature verification).
+- **Idempotency:** both paths use conditional updates inside transactions. Duplicate webhooks or a verify/webhook race resolve to one confirmed booking, one captured payment and one ticket code.
+- **Safe failure handling:** a captured payment for an expired or cancelled booking is never auto-confirmed. It is logged and flagged for reconciliation and manual refund review.
+
+### 3. Self-healing reservation expiry
+Each `PENDING` booking has a 10-minute window (`expiresAt`). A background job cancels expired bookings and restores their seats. Users can also cancel pending bookings manually.
+
+### 4. RBAC and QR gate check-in
 - JWT authentication with `USER` and `ADMIN` roles.
-- Confirmed bookings generate a unique `ticketCode` rendered as a high-error-correction QR code (`qrcode.react`).
-- Admins access an integrated **Gate Scanner Console** (`html5-qrcode` camera scanner + manual UUID fallback) that enforces single-use entry and event-specific validation (`VALID`, `ALREADY_USED`, `WRONG_EVENT`).
+- Confirmed bookings get a unique UUID `ticketCode`, rendered as a QR code.
+- Admins scan tickets with a camera scanner (manual code entry as a fallback). Check-in is a single atomic update, so each ticket is accepted once. Results: `VALID`, `ALREADY_USED`, `WRONG_EVENT`.
+
+## Architecture
 
 ```text
-[Client (React 19 + TS)]
-       │
-       ├──► POST /api/bookings ──► [Prisma TX: atomic updateMany(availableSeats >= qty)]
-       │                                      │
-       ├──► POST /api/payments/create-order ──┼──► [Razorpay Orders API]
-       │                                      │
-       ├──► POST /api/payments/verify ────────┤
-       │                                      ▼
-       │    [Razorpay Webhook] ──────► [HMAC-SHA256 Verify + Idempotent Confirm + UUID Ticket]
-       │                                      │
-       └──► [Cron Expiry Worker] ────► [Releases expired PENDING seats after 10 mins]
+Client (React + TS)
+  |-- POST /api/bookings ---------> Prisma TX: conditional updateMany (availableSeats >= qty)
+  |-- POST /api/payments/create-order --> Razorpay Orders API
+  |-- POST /api/payments/verify --------> signature + Razorpay fetch --> confirm booking (TX)
+  
+Razorpay --> POST /api/payments/webhook --> raw-body HMAC verify --> idempotent confirm (TX)
 
-       ## Tech Stack
+Background job --> releases expired PENDING bookings and restores seats
+```
+
+## Tech Stack
 
 | Layer | Technologies |
 | :--- | :--- |
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, Axios, Lucide Icons, `qrcode.react`, `html5-qrcode` |
-| **Backend** | Node.js, Express, TypeScript, Prisma ORM, `express-rate-limit`, Helmet, CORS |
-| **Database** | PostgreSQL |
-| **Payments** | Razorpay Checkout & HMAC-SHA256 Webhooks |
-| **Deployment** | Vercel (Frontend), Render (Backend Web Service + Managed PostgreSQL) |
+| Frontend | React, TypeScript, Vite, Tailwind CSS, Axios, `qrcode.react`, `html5-qrcode` |
+| Backend | Node.js, Express, TypeScript, Prisma ORM, Zod, JWT, Helmet, CORS, `express-rate-limit` |
+| Database | PostgreSQL |
+| Payments | Razorpay Checkout and webhooks |
+| Deployment | Vercel (frontend), Render (backend and PostgreSQL) |
 
----
+## API Overview
 
-## Results & Verification
+| Method | Endpoint | Access | Purpose |
+| :--- | :--- | :--- | :--- |
+| POST | `/api/bookings` | User | Reserve seats (atomic, 10-min hold) |
+| GET | `/api/bookings/my-bookings` | User | List the user's bookings and tickets |
+| POST | `/api/payments/create-order` | User | Create a Razorpay order for a pending booking |
+| POST | `/api/payments/verify` | User | Verify checkout signature and confirm booking |
+| POST | `/api/payments/webhook` | Razorpay | Handle `payment.captured` (signature verified) |
 
-The backend was validated against an automated end-to-end integration suite covering authentication, RBAC boundaries, payment signature/webhook idempotency, gate check-in guards, and HTTP concurrency stress testing:
+Booking cancellation, event management and check-in endpoints are also available. Add their exact routes here.
 
-- **0% Overselling Under Concurrent Load:** Fired **25 simultaneous HTTP booking requests** against an event with **5 available seats**—exactly **5 bookings succeeded (`201 Created`)**, **20 failed cleanly (`409 Conflict`)**, and `availableSeats` settled at **`0`** (never negative).
-- **100% Webhook Idempotency:** Simulated duplicate `payment.captured` webhook deliveries and verified single-ticket issuance with zero duplicate state mutations.
-- **Single-Use Gate Security:** Verified that scanned tickets transition atomically to `checkedInAt` timestamps, blocking replay scans (`ALREADY_USED`) and cross-event ticket reuse (`WRONG_EVENT`).
+## Verification
 
----
+Validated with an integration test suite (`<path to tests>`):
 
-## Key Engineering Learnings
+- **Concurrency:** 25 simultaneous booking requests against an event with 5 seats resulted in exactly 5 successes (`201`), 20 clean rejections (`409`), and `availableSeats` ending at `0`.
+- **Webhook idempotency:** repeated `payment.captured` deliveries produced a single ticket with no duplicate state changes.
+- **Check-in:** replayed scans return `ALREADY_USED`, and tickets scanned at another event return `WRONG_EVENT`.
 
-1. **Database Constraints Beat Application Locks:** Moving inventory checks into an atomic SQL `UPDATE ... WHERE available_seats >= qty` eliminated race conditions without introducing distributed lock complexity.
-2. **Raw Body Preservation for Webhooks:** Mounting `express.raw({ type: 'application/json' })` specifically on the webhook route before global `express.json()` parsing is essential for exact HMAC-SHA256 signature verification.
-3. **Designing for Partial Failure:** Treating client checkout completion as unreliable—and backing it up with both asynchronous webhooks and timed reservation rollbacks—ensures consistency even when users drop off mid-payment.
+Run the tests with `npm test` (adjust to your script name).
 
----
+## Design Decisions
+
+| Decision | Reason |
+| :--- | :--- |
+| Conditional `updateMany` instead of read-then-write | Closes the check-then-act race in one atomic statement, with no distributed locks |
+| Verify endpoint **and** webhook | The browser callback can be lost; webhooks can be late. Either path alone is unreliable |
+| Never auto-confirm expired bookings | Seats may already be resold, so the payment is flagged for refund review instead |
+| Raw body on the webhook route only | HMAC verification needs the exact bytes Razorpay signed |
+
+## Current Limitations & Future Roadmap
+
+While FlashSale guarantees transactional consistency and zero overselling on a single-region deployment, scaling to massive stadium-scale flash sales introduces known trade-offs:
+
+1. **Single-Row Database Contention at Extreme Scale:**
+   - *Limitation:* Every concurrent booking acquires a row-level write lock on the target `Event` record in PostgreSQL. Under tens of thousands of requests per second for a single event, row-lock queuing increases tail latency (`p95`/`p99`).
+   - *Planned Improvement:* Introduce a **Redis Lua atomic counter + BullMQ queue** layer to absorb burst traffic in memory and drain confirmed reservations asynchronously into PostgreSQL.
+
+2. **In-Process Cron Scheduler on Multi-Instance Deployments:**
+   - *Limitation:* The 10-minute reservation expiry cleanup currently runs inside the Node.js application process. Scaling horizontally across multiple backend replicas without leader election would trigger redundant cron sweeps.
+   - *Planned Improvement:* Offload expiry cleanup to an external worker (`pg_cron` or a dedicated Redis-backed job scheduler) with distributed lock guarantees.
+
+3. **Single Ticket Code per Multi-Seat Booking:**
+   - *Limitation:* A multi-ticket booking (e.g., `quantity = 3`) currently generates one shared `ticketCode` QR admitting the entire group together, requiring group members to arrive at the gate at the same time.
+   - *Planned Improvement:* Normalize tickets into a dedicated `Ticket` table so each seat receives an individual QR code for independent gate check-in and ticket transfers.
+
+4. **General-Admission Inventory Model (No Seat Map):**
+   - *Limitation:* Inventory is tracked as an aggregate integer (`availableSeats`) rather than numbered rows and seats.
+   - *Planned Improvement:* Add interactive venue seat-map selection with per-seat state locking (`AVAILABLE` → `HELD` → `BOOKED`).
 
 ## Local Setup
 
-### Prerequisites
-- Node.js v20+
-- PostgreSQL 15+
-- Razorpay Test API Keys
-
-### 1. Clone & Install
+**Prerequisites:** Node.js 20+, PostgreSQL 15+, Razorpay test keys.
 
 ```bash
-git clone [https://github.com/](https://github.com/)<your-username>/flashsale.git
+git clone https://github.com/<your-username>/flashsale.git
 cd flashsale
 
-# Install backend dependencies
-cd backend && npm install
-
-# Install frontend dependencies
-cd ../frontend && npm install
-
-Run Migrations & Start Servers
-# Terminal 1 — Backend
+# Backend
 cd backend
+npm install
+cp .env.example .env      # fill in values
 npx prisma migrate dev
-npm run dev
+npm run dev               # http://localhost:5000
 
-# Terminal 2 — Frontend
+# Frontend (new terminal)
 cd frontend
+npm install
 npm run dev
+```
+
+### Environment variables (`backend/.env`)
+
+```text
+DATABASE_URL=
+JWT_SECRET=
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+RAZORPAY_WEBHOOK_SECRET=
+PORT=5000
+```
+
+To receive webhooks locally, expose port 5000 with a tunnel (for example ngrok) and register `<tunnel-url>/api/payments/webhook` in the Razorpay dashboard.
+
+## Key Learnings
+
+1. **Database constraints beat application locks** for inventory correctness.
+2. **Webhook signatures need the raw body**, so the raw parser must be mounted before `express.json()`.
+3. **Design for partial failure.** Treat the client callback as unreliable and back it with webhooks, expiry and reconciliation.
+
+## Author
+
+**Amit Awasthi**: `<LinkedIn>` · `<GitHub>` · `<email>`
