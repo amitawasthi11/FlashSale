@@ -117,7 +117,7 @@ const bookingId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.i
 if (!bookingId) {
   return res.status(400).json({ error: "Booking ID is required" });
 }
-    const result = await cancelBooking(req.params.id, userId);
+    const result = await cancelBooking(String(req.params.id), userId);
     res.status(200).json({ success: true, data: result });
   } catch (error) {
     if (error instanceof Error && error.message === "BOOKING_NOT_FOUND") {

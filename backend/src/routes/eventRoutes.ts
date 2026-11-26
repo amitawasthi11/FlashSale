@@ -1,13 +1,14 @@
-import { Router } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma.js";
 import { createEventSchema } from "../schemas/eventSchema.js";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireAdmin } from "../middleware/admin.middleware";
 
 const router = Router();
+type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 // Create event — Admin only
-router.post("/", requireAuth, requireAdmin, async (req, res, next) => {
+router.post("/", requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = createEventSchema.safeParse(req.body);
 
@@ -37,7 +38,7 @@ router.post("/", requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 // Update event — Admin only
-router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
+router.put("/:id", requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = String(req.params.id);
     const result = createEventSchema.safeParse(req.body);
@@ -53,7 +54,7 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 
     const { totalSeats, ...eventData } = result.data;
 
-    const event = await prisma.$transaction(async (tx) => {
+    const event = await prisma.$transaction(async (tx: TxClient) => {
       const current = await tx.event.findUnique({
         where: { id },
         select: {
@@ -120,7 +121,7 @@ router.put("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 // Delete event — Admin only
-router.delete("/:id", requireAuth, requireAdmin, async (req, res, next) => {
+router.delete("/:id", requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const eventId = String(req.params.id);
 
@@ -164,11 +165,11 @@ router.delete("/:id", requireAuth, requireAdmin, async (req, res, next) => {
 });
 
 // Cancel event — Admin only
-router.patch("/:id/cancel", requireAuth, requireAdmin, async (req, res, next) => {
+router.patch("/:id/cancel", requireAuth, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = String(req.params.id);
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: TxClient) => {
       const event = await tx.event.findUnique({
         where: { id },
         select: { id: true, isCancelled: true },
@@ -184,7 +185,7 @@ router.patch("/:id/cancel", requireAuth, requireAdmin, async (req, res, next) =>
       });
 
       const seatsToRestore = pendingBookings.reduce(
-        (sum, b) => sum + b.quantity,
+        (sum: number, b: { quantity: number }) => sum + b.quantity,
         0
       );
 
@@ -242,7 +243,7 @@ router.patch("/:id/cancel", requireAuth, requireAdmin, async (req, res, next) =>
 });
 
 // Get all active events — Public (supports search, filters, sorting, pagination)
-router.get("/", async (req, res, next) => {
+router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
