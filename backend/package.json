@@ -4,11 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "test:backend": "tsx scripts/integrationTest.ts",
-    "postinstall": "prisma skills sync || exit 0"
+    "build": "npx prisma generate && tsc",
+    "start": "npx prisma migrate deploy && node dist/server.js"
   },
   "keywords": [],
   "author": "",
@@ -33,7 +30,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.11",
     "@types/node-cron": "^3.0.11",
     "prisma": "^7.10.1",
     "tsx": "^4.23.15",
